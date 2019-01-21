@@ -177,6 +177,7 @@ my @sit_function = ();                     # Data about functions used
 my @sit_until_ttl = ();                    # value of UNTIL/*TTL
 my @sit_until_sit = ();                    # value of UNTIL/*SIT
 my @sit_tables = ();                       # list of attribute groups
+my @sit_tables_ct = ();                    # count of attribute groups
 my @sit_alltables = ();                    # list of all attribute groups
 my @sit_missing = ();                      # count of *MISSING
 my @sit_missing_ct = ();                   # count of *MISSING comparands
@@ -1081,6 +1082,8 @@ my %advcx = (
                "SITAUDIT1057W" => "90",
                "SITAUDIT1058E" => "100",
                "SITAUDIT1059W" => "90",
+               "SITAUDIT1060W" => "50",
+               "SITAUDIT1061E" => "90",
             );
 
 
@@ -1616,15 +1619,19 @@ for (my $i=0; $i<=$siti; $i++) {
       my $atrg_ref = $Atrg{$onetab};
       if (!defined $atrg_ref) {
          my %ssits = ();
+         my %spurs = ();
          my %atrgref = (
                          pure_ct => 0,
                          samp_ct => 0,
                          samp_sits => \%ssits,
+                         pure_sits => \%spurs,
                       );
          $Atrg{$onetab} = \%atrgref;
       }
+      $sit_tables_ct[$i] += 1;
       if ($sit_reeval[$i] == 0) {
          $Atrg{$onetab}->{pure_ct} += 1;
+         $Atrg{$onetab}->{pure_sits}{$sit[$i]} = 1;
       } else {
          $Atrg{$onetab}->{samp_ct} += 1;
          $Atrg{$onetab}->{samp_sits}{$sit[$i]} = 1;
@@ -2022,17 +2029,37 @@ if ($sit_tems_alert == 1) {
       $advsit[$advi] = "TEMS_Alert";
    }
 }
+
 foreach $f (sort { $a cmp $b } keys %Atrg) {
+   my $sx;
    if (($Atrg{$f}->{pure_ct} > 0) and ($Atrg{$f}->{samp_ct} > 0)) {
+      if (($Atrg{$f}->{samp_ct} > $Atrg{$f}->{pure_ct})) {  # mostly sampled
+         foreach my $g (keys %{$Atrg{$f}->{pure_sits}}) {
+$DB::single=2 if $g eq "as1_logstat_g064_btech_gen";
+            $sx = $sitx{$g};
+            next if !defined $sx;
+            next if $sit_tables_ct[$sx] == 1;
+            if ($sit_reeval[$sx] == 0) {
+               $advi++;$advonline[$advi] = "Attribute Group [$f] coerced from Sampled to Pure in sit[$g] pdt[$sit_pdt[$sx]]";
+               $advcode[$advi] = "SITAUDIT1061E";
+               $advimpact[$advi] = $advcx{$advcode[$advi]};
+               $advsit[$advi] = $f;
+            }
+         }
+      } else {                                             # mostly pure
          foreach my $g (keys %{$Atrg{$f}->{samp_sits}}) {
-            my $sx = $sitx{$g};
-            if (defined $sx) {
-               $advi++;$advonline[$advi] = "Attribute Group coerced from Pure to Sampled in sit[$g] pdt[$sit_pdt[$sx]]";
+$DB::single=2 if $g eq "as1_logstat_g064_btech_gen";
+            $sx = $sitx{$g};
+            next if !defined $sx;
+            next if $sit_tables_ct[$sx] == 1;
+            if ($sit_reeval[$sx] > 0) {
+               $advi++;$advonline[$advi] = "Attribute Group [$f] coerced from Sampled to Pure in sit[$g] pdt[$sit_pdt[$sx]]";
                $advcode[$advi] = "SITAUDIT1047E";
                $advimpact[$advi] = $advcx{$advcode[$advi]};
                $advsit[$advi] = $f;
             }
          }
+      }
    }
 }
 
@@ -3308,7 +3335,7 @@ sub newsit {
       }
       if (length($isitname) == 32) {
          $advi++;$advonline[$advi] = "SITNAME is 32 bytes long - illegal and will be usually ignored - fullname [$ifullname]";
-         $advcode[$advi] = "SITAUDIT1060E";
+         $advcode[$advi] = "SITAUDIT1060W";
          $advimpact[$advi] = $advcx{$advcode[$advi]};
          $advsit[$advi] = $sit[$siti];
       }
@@ -5365,6 +5392,7 @@ $run_status++;
 #          : Correct some defects related to -bulk option
 # 1.41000  : Correct -lst options
 #          : Embedded report and advisory explanations
+#          : improved logic on sampled to pure to sampled coercion
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -6455,6 +6483,54 @@ Thus the situation is probably not monitoring as needed.
 Recovery Plan: Rethink the situation. Work out example times on paper
 first before writing situation
 --------------------------------------------------------------
+
+SITAUDIT1060W
+Text: SITNAME is 32 bytes long - illegal and will be usually ignored - fullname [$ifullname]
+
+Meaning: From ITM 6.2 Situation names have been limited to 31 bytes
+or less. If there is a longer name defined, the TNAME table is used.
+
+Some user and product defined situation names can still be 32 bytes
+long. The only impact is that some TACMD functions will refused to
+operate.
+
+If that is important, reauthor the situation with a shorter name
+and delete this situation.
+
+SITREPORT001
+Text: Summary Report
+
+Sample:
+Total Situations,3299
+Total Active Situations,2140
+Advisory messages,301
+Filter at TEMS,116
+Filter at Agent,2024
+
+Explanation: information only.
+----------------------------------------------------------------
+
+SITAUDIT1061E
+Text: Attribute Group [name] coerced from Pure to Sampled in sit[sitname] pdt[pdt]
+
+Meaning: Situation may not work as expected and has been seen to cause
+rare TEMS failures.
+
+When a situation formula contains multiple attribute groups it may
+produce a severe performance issue - see discussion on SITAUDIT1009E.
+If the mixture is a pure attribute group mixed with a time test, the
+situation will be invalidly converted to a sampled situation and the
+results will not be as expected. In addition that condition can cause a
+rare TEMS failure.
+
+Recovery Plan: Change the formula to not mix pure and sampled attribute
+groups. Often the sampled group formula can be converted to
+a *UNTIL/*SIT with the same logic. This does not cause problems. Here is
+an example of using a Until Situation with a time formula which can be
+used to suppress a pure situation event.
+
+Sitworld: Suppressing Situation Events By Time Schedule
+https://ibm.biz/BdXBs4
 
 SITREPORT001
 Text: Summary Report
