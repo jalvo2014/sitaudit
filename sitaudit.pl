@@ -24,13 +24,22 @@
 # warn on cases of Workflow policies correlated by hostname
 # Does MS_Offline with *UNTIL/*TTL or *SIT cause excess workload
 
+## 2008 APAR
+## IZ02749: A situation is invalid if all of the following are true:
+
+## The situations has:
+
+## a reflex (take action)
+## attributes from more than one attribute group
+## both an *and and an *or condition.
+
 #use warnings::unused; # debug used to check for unused variables
 use strict;
 use warnings;
 
 # See short history at end of module
 
-my $gVersion = "1.41000";
+my $gVersion = "1.43000";
 my $gWin = (-e "C://") ? 1 : 0;    # 1=Windows, 0=Linux/Unix
 
 # communicate without certificates
@@ -123,6 +132,7 @@ my $sitcyclerc;
 my $sittopi;
 
 my %pdtx;
+my %pdtax;
 
 my %nodel;
 
@@ -1527,8 +1537,6 @@ for (my $i=0; $i<=$siti; $i++) {
                    eval ($d_pdt);
                    if ($@) {
                       warn "eval failure $siti $sit[$siti] $d_test $d_pdt";
-    $DB::single=2;
-    $x = 1;
                    }
                    $sit_domain_pass[$siti] += 1 if $d_rc;
 
@@ -1608,10 +1616,12 @@ for (my $i=0; $i<=$siti; $i++) {
    if ($tems_eval == 0) {
      $sit_filter[$i] = "agent";
      $sit_agent_ct += 1;
+     $pdtax{$sit_pdt[$i]} = 1;
    }
    if ($tems_eval > 0) {
      $sit_filter[$i] = "tems";
      $sit_tems_ct += 1;
+     $pdtax{$sit_pdt[$i]} = 1;
    }
    my @words = split(" ",$sit_tables[$i]);
    for (my $w = 0; $w <=$#words; $w++) {
@@ -1682,7 +1692,7 @@ for (my $i=0; $i<=$siti; $i++) {
    }
    if ($sit_count_ltone[$i] > 0) {
       $advi++;$advonline[$advi] = "Situation [$sit_psit[$i]] has *COUNT test with *LT/*LE 1";
-      $advcode[$advi] = "SITAUDIT1013E";
+      $advcode[$advi] = "SITAUDIT1013W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = $sit_psit[$i];
    }
@@ -1790,7 +1800,7 @@ for (my $i=0; $i<=$siti; $i++) {
       $advsit[$advi] = $sit_psit[$i];
    }
    if ($sit_scan_ne[$i] > 0) {
-      $advi++;$advonline[$advi] = "*SCAN with *NE check does not work with wildcard characters * and ? pdt[$sit_pdt[$i]]";
+      $advi++;$advonline[$advi] = "*SCAN with *NE check works like a *VALUE *NE test pdt[$sit_pdt[$i]]";
       $advcode[$advi] = "SITAUDIT1036W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = $sit_psit[$i];
@@ -2035,7 +2045,6 @@ foreach $f (sort { $a cmp $b } keys %Atrg) {
    if (($Atrg{$f}->{pure_ct} > 0) and ($Atrg{$f}->{samp_ct} > 0)) {
       if (($Atrg{$f}->{samp_ct} > $Atrg{$f}->{pure_ct})) {  # mostly sampled
          foreach my $g (keys %{$Atrg{$f}->{pure_sits}}) {
-$DB::single=2 if $g eq "as1_logstat_g064_btech_gen";
             $sx = $sitx{$g};
             next if !defined $sx;
             next if $sit_tables_ct[$sx] == 1;
@@ -2048,7 +2057,6 @@ $DB::single=2 if $g eq "as1_logstat_g064_btech_gen";
          }
       } else {                                             # mostly pure
          foreach my $g (keys %{$Atrg{$f}->{samp_sits}}) {
-$DB::single=2 if $g eq "as1_logstat_g064_btech_gen";
             $sx = $sitx{$g};
             next if !defined $sx;
             next if $sit_tables_ct[$sx] == 1;
@@ -2073,8 +2081,12 @@ $rptkey = "SITREPORT001";$advrptx{$rptkey} = 1;         # record report key
 my $tsit = $siti + 1;
 print OH "$rptkey: Summary Report\n";
 print OH "Total Situations,$tsit\n";
+my $pdt_ct = scalar keys %pdtx;
+print OH "Total Situation Formula,$pdt_ct\n";
 $tsit = $sit_tems_ct + $sit_agent_ct;
 print OH "Total Active Situations,$tsit\n";
+my $pdta_ct = scalar keys %pdtax;
+print OH "Total Active Situation Formula,$pdta_ct\n";
 $tsit = $advi + 1;
 print OH "Advisory messages,$tsit\n";
 print OH "Filter at TEMS,$sit_tems_ct\n";
@@ -2158,6 +2170,33 @@ if ($opt_dist == 1) {
        $outline = $sit_psit[$i] . ",";
        $outline .= $sit_autostart[$i] . ",";
        $outline .= $sit_dist_objaccl[$i];
+       print OH "$outline\n";
+   }
+}
+
+if ($opt_dist == 1) {
+   $rptkey = "SITREPORT005";$advrptx{$rptkey} = 1;         # record report key
+   print OH "\n";
+   print OH "$rptkey: Situation with Distributions Report\n";
+   print OH "Situation,Autostart,Distribution\n";
+   for (my $i=0; $i<=$siti; $i++) {
+       next if  $sit_dist_objaccl[$i] eq "";
+       next if substr($sit[$i],0,8) eq "UADVISOR";
+       $outline = $sit_psit[$i] . ",";
+       $outline .= $sit_autostart[$i] . ",";
+       $outline .= $sit_dist_objaccl[$i];
+       print OH "$outline\n";
+   }
+}
+
+if ($sit_correlated_ct > 0) {
+   $rptkey = "SITREPORT008";$advrptx{$rptkey} = 1;         # record report key
+   print OH "\n";
+   print OH "$rptkey: Correlated Situations Report\n";
+   print OH "Situation,\n";
+   for (my $i=0; $i<=$siti; $i++) {
+       next if  $sit_correlated[$i] == 0;
+       $outline = $sit_psit[$i] . ",";
        print OH "$outline\n";
    }
 }
@@ -2882,10 +2921,18 @@ sub My_Actions::do_value {
     my $attr = $$t2[2];
     if ($attrgroup eq "ManagedSystem") {
        if ($attr eq "Status") {
-          if (($$t4[0] eq "*OFFLINE") or ($$t4[0] eq "'*OFFLINE'")) {
-             $sit_ms_offline[$curi] += 1;
-          } elsif (($$t4[0] eq "*ONLINE") or ($$t4[0] eq "'*ONLINE'")) {
-             $sit_ms_online[$curi] += 1;
+          if ($$t3[0] eq "*EQ"){
+             if (($$t4[0] eq "*OFFLINE") or ($$t4[0] eq "'*OFFLINE'")) {
+                $sit_ms_offline[$curi] += 1;
+             } elsif (($$t4[0] eq "*ONLINE") or ($$t4[0] eq "'*ONLINE'")) {
+                $sit_ms_online[$curi] += 1;
+             }
+          } else {
+             if (($$t4[0] eq "*OFFLINE") or ($$t4[0] eq "'*OFFLINE'")) {
+                $sit_ms_online[$curi] += 1;
+             } elsif (($$t4[0] eq "*ONLINE") or ($$t4[0] eq "'*ONLINE'")) {
+                $sit_ms_offline[$curi] += 1;
+             }
           }
        } elsif ($attr eq "Reason") {
          if ($$t3[0] eq "*NE"){
@@ -3124,9 +3171,7 @@ sub My_Actions::do_scan {
           $testval =~ m/\'(.*?)\'/;
           $testval = $1 if defined $1;
        }
-       if ((index($testval,"*") != -1) or (index($testval,"?") != -1)) {
-          $sit_scan_ne[$curi] += 1;
-       }
+       $sit_scan_ne[$curi] += 1;
     }
     # *SCAN can be implemented using *REGEX
 
@@ -5393,6 +5438,9 @@ $run_status++;
 # 1.41000  : Correct -lst options
 #          : Embedded report and advisory explanations
 #          : improved logic on sampled to pure to sampled coercion
+# 1.42000  : Correct *SCAN *NE test and explanation 1036W
+#          : Correct MS_ONLINE and MS_OFFLINE type counts
+# 1.43000  : Add formula counts to summary
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -6104,16 +6152,17 @@ Recovery Plan: Review necessity for such a test.
 --------------------------------------------------------------
 
 SITAUDIT1036W
-Text: *SCAN with *NE check does not work with wildcard characters * and ? test pdt[<PDT>]
+Text: *SCAN with *NE check works like a *VALUE *NE test pdt[<PDT>]
 
 Meaning: Situation may not work as expected
 
-A *SCAN function with wildcard characters "*" and "?" only works
-with the *EQ comparison. With a *NE comparison the test fails. The
-comparison is a simple one where the attribute is checked including
-the * or ?.
+The *SCAN function in a situation only works with the *EQ test.
 
-Recovery Plan: Rework situation to perform required logic.
+The *NE test is exactly equivalent to *VALUE attribute *NE test.
+
+Recovery Plan: Rework situation to perform required logic. You can
+often rework this into a Base/Until formulation where the *SCAN
+with the valid *EQ test is in the Until situation.
 --------------------------------------------------------------
 
 SITAUDIT1037I
@@ -6658,4 +6707,21 @@ It can also be used when a situation is renamed.
 
 This is information and might be useful in interpreting agent
 operations logs.
+----------------------------------------------------------------
+SITREPORT008
+Text: Correlated Situations Report
+
+Parm: none
+
+Sample:
+Situation,
+MON_HUB_NTa_SVCS_MSSQLSERVERS_UGUNHPAAL_UGUNHPAAM_ SQLA_CLUST_C,
+MON_HUB_NTa_SVCS_MSSQLSERVERS_UGUNHPAAL_UGUNHPAAM_ SQLB_CLUST_C,
+
+Explanation:
+Correlated situations are very expensive if there are many
+agents. In one case a site with 5000 agents and 13 correlated
+situations caused a TEMS crash once a day.
+
+Minimize the use of correlated situations.
 ----------------------------------------------------------------
