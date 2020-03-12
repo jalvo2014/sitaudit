@@ -39,7 +39,7 @@ use warnings;
 
 # See short history at end of module
 
-my $gVersion = "1.43000";
+my $gVersion = "1.44000";
 my $gWin = (-e "C://") ? 1 : 0;    # 1=Windows, 0=Linux/Unix
 
 # communicate without certificates
@@ -968,6 +968,7 @@ my $opt_o;                      # output file
 my $opt_workpath;               # Directory to store output files
 my $opt_runall;                 # check Run at Startup = *OFF situations
 my $opt_pdtmsl;                 # generate MSLs for duplicate PDTs
+my $opt_sitpdt;
 my $opt_pdtlim;                 # low limit on reporting duplicate PDTs
 my $user="";
 my $passwd="";
@@ -1308,7 +1309,7 @@ my $ms_offline_sits = "";
 my $ms_offline_reev_nominal = 300;
 my $ms_offline_evals_hour = 0;
 my $ms_offline_evals_hour_nominal = 75;
-my $in_count_nominal = 15;
+my $in_count_nominal = 12;
 my $sit_agent_ct = 0;
 my $sit_tems_ct = 0;
 
@@ -1917,7 +1918,7 @@ for (my $i=0; $i<=$siti; $i++) {
    }
 
    if ($sit_timeneeq[$i] > 0) {
-      $advi++;$advonline[$advi] = "*TIME delta test with *EQ or *NE which is never correct";
+      $advi++;$advonline[$advi] = "*TIME delta test with *EQ or *NE which is never correct - pdt[$sit_pdt[$i]]";
       $advcode[$advi] = "SITAUDIT1058E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = $sit_psit[$i];
@@ -2193,10 +2194,12 @@ if ($sit_correlated_ct > 0) {
    $rptkey = "SITREPORT008";$advrptx{$rptkey} = 1;         # record report key
    print OH "\n";
    print OH "$rptkey: Correlated Situations Report\n";
-   print OH "Situation,\n";
+   print OH "Situation,Sampling,PDT,\n";
    for (my $i=0; $i<=$siti; $i++) {
        next if  $sit_correlated[$i] == 0;
        $outline = $sit_psit[$i] . ",";
+       $outline .= $sit_reeval[$i] . ",";
+       $outline .= $sit_pdt[$i] . ",";
        print OH "$outline\n";
    }
 }
@@ -2318,6 +2321,26 @@ if ($pdt_total > 0) {
       close $mslcmd;
       close $delsh;
       close $delcmd;
+   }
+}
+
+# when wanted print out the sitname, fullname and pdt
+if ($pdt_total > 0) {
+   if ($opt_sitpdt == 1) {
+      my $sitfilecmd = "sitaudit_pdt.csv";
+      my $sitcmd;
+      open $sitcmd, ">$sitfilecmd" or die "can't open $sitfilecmd: $!";
+      my $outl;
+      my $s;
+      for (my $i=0; $i<=$siti; $i++) {
+         next if $sit_autostart[$i] ne "*YES";
+         $outl = $sit[$i] . "\t";
+         $outl .= $sit_fullname[$i]  . "\t";
+         $outl .= $sit_reeval[$i]  . "\t";
+         $outl .= $sit_pdt[$i]  . "\t";
+         print $sitcmd "$outl\n";
+      }
+      close $sitcmd;
    }
 }
 my $im_ct = scalar keys %impossible;
@@ -4496,6 +4519,7 @@ sub init {
               'bulk=s' => \ $opt_bulk_path,           # bulkexportsit directory input
               'pdtmsl' => \ $opt_pdtmsl,              # generate MSLs for duplicate PDTs
               'pdtlim=i' => \ $opt_pdtlim,            # on duplicate PDTs, lower limit on how many to report on
+              'sitpdt' => \$opt_sitpdt,
               'noauto' => \ $opt_noauto,              # create editsit for impossible to run cases
               'nofull' => \ $opt_nofull,              # Do not display fullname
               'all' => \ $opt_all                     # Handle autostart *NO situations
@@ -4650,6 +4674,7 @@ sub init {
    if (!defined $opt_syntax) {$opt_syntax=0;}                  # default to no syntax tracing
    if (!defined $opt_pdtmsl) {$opt_pdtmsl=0;}                  # default to no MSL creation for duplicate PDTs
    if (!defined $opt_pdtlim) {$opt_pdtlim=1;}                  # default to show cases with 5 duplicate PDTs
+   if (!defined $opt_sitpdt) {$opt_sitpdt=0;}                  # default to no MSL creation for duplicate PDTs
 
    $opt_workpath =~ s/\\/\//g;                                 # convert to standard perl forward slashes
    if ($opt_workpath ne "") {
@@ -5441,6 +5466,7 @@ $run_status++;
 # 1.42000  : Correct *SCAN *NE test and explanation 1036W
 #          : Correct MS_ONLINE and MS_OFFLINE type counts
 # 1.43000  : Add formula counts to summary
+# 1.44000  : anominize two example report rows
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -6599,8 +6625,8 @@ Text: Top 20 most recently added or changed Situations
 
 Sample:
 LSTDATE,Situation,Formula
-1190108105433000,kph_webfault_xd4m_soa_rtdi1,*IF (*VALUE Services_Inventory_610.Interval_Status *GE 2 *AND *VALUE Services_Inventory_610.Fault_Count *GE 10) *AND ((*VALUE Services_Inventory_610.Port_Namespace_U *EQ 'www.kp.com/DPNon-XML' *AND *VALUE Services_Inventory_610.Service_Name_U *EQ 'Multiprotocol Gateway:MPG_KPORG_RetrieveDrugImage_v1')),
-1190108105432000,kph_maxresp_xd4m_soa_rtdi1,*IF (*VALUE Services_Inventory_610.Interval_Status *GE 2 *AND *VALUE Services_Inventory_610.Max_Elapsed_Time *GE 120000) *AND ((*VALUE Services_Inventory_610.Port_Namespace_U *EQ 'www.kp.com/DPNon-XML' *AND *VALUE Services_Inventory_610.Service_Name_U *EQ 'Multiprotocol Gateway:MPG_KPORG_RetrieveDrugImage_v1')),
+1190108105433000,kph_webfault_xd4m_soa_rtdi1,*IF (*VALUE Services_Inventory_610.Interval_Status *GE 2 *AND *VALUE Services_Inventory_610.Fault_Count *GE 10) *AND ((*VALUE Services_Inventory_610.Port_Namespace_U *EQ 'www.ibm.com/DPNon-XML' *AND *VALUE Services_Inventory_610.Service_Name_U *EQ 'Multiprotocol Gateway:MPG_RetrieveDrugImage_v1')),
+1190108105432000,kph_maxresp_xd4m_soa_rtdi1,*IF (*VALUE Services_Inventory_610.Interval_Status *GE 2 *AND *VALUE Services_Inventory_610.Max_Elapsed_Time *GE 120000) *AND ((*VALUE Services_Inventory_610.Port_Namespace_U *EQ 'www.ibm.com/DPNon-XML' *AND *VALUE Services_Inventory_610.Service_Name_U *EQ 'Multiprotocol Gateway:MPG_RetrieveDrugImage_v1')),
 
 Explanation:
 When a problem is seen, sometimes it is caused by a recently created
