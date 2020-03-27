@@ -39,7 +39,7 @@ use warnings;
 
 # See short history at end of module
 
-my $gVersion = "1.44000";
+my $gVersion = "1.45000";
 my $gWin = (-e "C://") ? 1 : 0;    # 1=Windows, 0=Linux/Unix
 
 # communicate without certificates
@@ -1095,6 +1095,8 @@ my %advcx = (
                "SITAUDIT1059W" => "90",
                "SITAUDIT1060W" => "50",
                "SITAUDIT1061E" => "90",
+               "SITAUDIT1062W" => "95",
+               "SITAUDIT1063E" => "100",
             );
 
 
@@ -1723,6 +1725,20 @@ for (my $i=0; $i<=$siti; $i++) {
             $advimpact[$advi] = $advcx{$advcode[$advi]};
             $advsit[$advi] = $sit_psit[$i];
          }
+      }
+   }
+   if ($sit_reeval[$i] == 0) {
+      if ($sit_count[$i] > 0) {
+         $advi++;$advonline[$advi] = "Pure Situation [$sit_psit[$i]] has *COUNT test which can cause TEMS instability [$sit_pdt[$i]]";
+         $advcode[$advi] = "SITAUDIT1062W";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = $sit_psit[$i];
+      }
+      if ($sit_persist[$i] > 1) {
+         $advi++;$advonline[$advi] = "Pure Situation [$sit_psit[$i]] has Persist>1 which can never occur [$sit_pdt[$i]]";
+         $advcode[$advi] = "SITAUDIT1063E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = $sit_psit[$i];
       }
    }
    if ($sit_until_sit[$i] ne "") {
@@ -5467,6 +5483,7 @@ $run_status++;
 #          : Correct MS_ONLINE and MS_OFFLINE type counts
 # 1.43000  : Add formula counts to summary
 # 1.44000  : anominize two example report rows
+# 1.45000  : Add advisory for pure situations with *COUNT test
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -6618,6 +6635,28 @@ Filter at TEMS,116
 Filter at Agent,2024
 
 Explanation: information only.
+----------------------------------------------------------------
+
+SITAUDIT1062W
+Text: Pure Situation [name] has *COUNT test which test which can cause TEMS instability [pdt]
+
+Meaning: Situation will likely not work since *COUNT only has meaning
+in a Sampled Situation. The Impact level is high [95] because it will
+cause TEMS instability. The *COUNT causes all results to be
+sent to the TEMS with no filtering at all - higher result workload.
+
+Recovery Plan: Change the formula to remove the *COUNT clause.
+----------------------------------------------------------------
+
+SITAUDIT1063E
+         $advi++;$advonline[$advi] = "Pure Situation [$sit_psit[$i]] has Persist>1 which can never occur [$sit_pdt[$i]]";
+Text: Pure Situation [name] has Persist>1 which can never occur [pdt]
+
+Meaning: Persist is a Sampled situation concept and will never occur
+on a Pure situation. As a result this situation will never fire and
+so potential situation events will never be seen.
+
+Recovery Plan: Change the formula to chagne Persist to the default 1.
 ----------------------------------------------------------------
 
 SITREPORT002
