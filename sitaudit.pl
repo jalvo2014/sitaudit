@@ -39,7 +39,7 @@ use warnings;
 
 # See short history at end of module
 
-my $gVersion = "1.45000";
+my $gVersion = "1.46000";
 my $gWin = (-e "C://") ? 1 : 0;    # 1=Windows, 0=Linux/Unix
 
 # communicate without certificates
@@ -1097,6 +1097,7 @@ my %advcx = (
                "SITAUDIT1061E" => "90",
                "SITAUDIT1062W" => "95",
                "SITAUDIT1063E" => "100",
+               "SITAUDIT1064W" => "95",
             );
 
 
@@ -1739,6 +1740,16 @@ for (my $i=0; $i<=$siti; $i++) {
          $advcode[$advi] = "SITAUDIT1063E";
          $advimpact[$advi] = $advcx{$advcode[$advi]};
          $advsit[$advi] = $sit_psit[$i];
+      }
+      if ($sit_until_ttl[$i] ne "") {
+         my @itimes = split(":",$sit_until_ttl[$i]);
+         my $dtime = $itimes[0]*86400+$itimes[1]*3600+$itimes[2]*60+$itimes[3];
+         if ($dtime > 900) {
+            $advi++;$advonline[$advi] = "Pure Situation [$sit_psit[$i]] has *TTL[$sit_until_ttl[$i]] more than 15 minutes";
+            $advcode[$advi] = "SITAUDIT1064W";
+            $advimpact[$advi] = $advcx{$advcode[$advi]};
+            $advsit[$advi] = $sit_psit[$i];
+         }
       }
    }
    if ($sit_until_sit[$i] ne "") {
@@ -5484,6 +5495,7 @@ $run_status++;
 # 1.43000  : Add formula counts to summary
 # 1.44000  : anominize two example report rows
 # 1.45000  : Add advisory for pure situations with *COUNT test
+# 1.46000  : Add advisory for pure situations *TTL more than 15 minutes
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -6649,14 +6661,24 @@ Recovery Plan: Change the formula to remove the *COUNT clause.
 ----------------------------------------------------------------
 
 SITAUDIT1063E
-         $advi++;$advonline[$advi] = "Pure Situation [$sit_psit[$i]] has Persist>1 which can never occur [$sit_pdt[$i]]";
 Text: Pure Situation [name] has Persist>1 which can never occur [pdt]
 
 Meaning: Persist is a Sampled situation concept and will never occur
 on a Pure situation. As a result this situation will never fire and
 so potential situation events will never be seen.
 
-Recovery Plan: Change the formula to chagne Persist to the default 1.
+Recovery Plan: Change the formula to change Persist to the default 1.
+----------------------------------------------------------------
+
+SITAUDIT1064W
+Text: Pure Situation [name] has *TTL[$sit_until_ttl[$i]] more than 15 minutes
+
+Meaning: Pure situations should normally be closed fairly quickly.
+Most large environments will have an event receiver such as
+Netcool/Omnibus to handle the work and there is no reason to tie
+up hub or remote TEMS storage for too long.
+
+Recovery Plan: Change the formula to reduce *TTL time to the minimum necessary.
 ----------------------------------------------------------------
 
 SITREPORT002
