@@ -39,7 +39,7 @@ use warnings;
 
 # See short history at end of module
 
-my $gVersion = "1.46000";
+my $gVersion = "1.47000";
 my $gWin = (-e "C://") ? 1 : 0;    # 1=Windows, 0=Linux/Unix
 
 # communicate without certificates
@@ -133,6 +133,8 @@ my $sittopi;
 
 my %pdtx;
 my %pdtax;
+
+my %sitnox;
 
 my %nodel;
 
@@ -230,6 +232,9 @@ my @sit_domain_pass;                       # when 0, nothing in domain passes
 my @sit_correlated;                        # count of correlated tests
 my @sit_timeneeq;                          # *TIME test with *NE or *EQ
 my @sit_timefuture;                        # *TIME with future test
+my @sit_attrib;
+
+my $sitcyclei = 0;
 
 my $sit_correlated_ct = 0;                 # number of correlated situations
 my $sit_correlated_hr = 0;                 # number of ISITSTSH scans per hour for correlated situations
@@ -981,6 +986,7 @@ my $opt_syntax;                 # syntax tracing
 my $opt_private;                # private situation audit
 my $opt_function;               # list of function usage
 my $opt_a;                      # export situation attribute group
+my $opt_purettl;                # generate editsits
 my $opt_nofull;
 my $opt_all = 0;
 
@@ -1098,6 +1104,9 @@ my %advcx = (
                "SITAUDIT1062W" => "95",
                "SITAUDIT1063E" => "100",
                "SITAUDIT1064W" => "95",
+               "SITAUDIT1065E" => "100",
+               "SITAUDIT1066E" => "95",
+               "SITAUDIT1067E" => "100",
             );
 
 
@@ -1305,6 +1314,16 @@ if ($opt_a == 1) {
    open AH, ">$a_file" or die "can't open $a_file: $!";
 }
 
+my $ttlsh;
+my $ttlcmd;
+if ($opt_purettl == 1) {
+   my $ttlsh_fn = "purettl.sh";
+   my $ttlcmd_fn = "purettl.cmd";
+   open $ttlsh, ">$ttlsh_fn" or die "can't open $ttlsh_fn: $!";
+   binmode($ttlsh);
+   open $ttlcmd, ">$ttlcmd_fn" or die "can't open $ttlcmd_fn: $!";
+}
+
 
 my $ms_offline_ct = 0;
 my $ms_offline_ct_nominal = 5;
@@ -1344,8 +1363,10 @@ for (my $i=0; $i<=$siti; $i++) {
 }
 
 # second pass to check on *SIT table attributes
+# and to create @sit_attrib array
 for (my $i=0; $i<=$siti; $i++) {
    next if $sit_sit[$i] == 0;
+   $sitcyclei = $i;                 # track base situation
    my $rc = cycle_sit($i);          # advisory created when looping detected
 }
 
@@ -1425,6 +1446,61 @@ for (my $i=0; $i<=$siti; $i++) {
    $advcode[$advi] = "SITAUDIT1057W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = $sit_psit[$i];
+}
+
+# seventh pass to defect situation attribute conflicts
+for (my $i=0; $i<=$siti; $i++) {
+   foreach $f (keys %{$sit_attrib[$i]}) {
+      my $base_attrib_ref = $sit_attrib[$i]{$f};
+      foreach my $g (keys %{$base_attrib_ref->{tables}}) {
+         my $table_ref = $base_attrib_ref->{tables}{$g};
+         $base_attrib_ref->{table_ct} += 1;
+         my $isamp = $multih{$g};
+         if (defined $isamp) {
+            $base_attrib_ref->{multi_ct} += 1 if $isamp eq "M";
+            $base_attrib_ref->{single_ct} += 1 if $isamp eq "S";
+         } else {
+            $base_attrib_ref->{pure_ct} += 1;
+         }
+         foreach my $h (keys %{$table_ref->{sits}}) {
+            push @{$base_attrib_ref->{sitused}},$h;
+         }
+      }
+   }
+}
+
+for (my $i=0; $i<=$siti; $i++) {
+   foreach $f (keys %{$sit_attrib[$i]}) {
+      my $base_attrib_ref = $sit_attrib[$i]{$f};
+      my $nosit_ct = scalar keys %{$base_attrib_ref->{nosits}};
+      if ($nosit_ct > 0) {
+         my @inosit = keys  %{$base_attrib_ref->{nosits}};
+         my $pnosit = join(" ",@inosit);
+         $advi++;$advonline[$advi] = "Situation using *SIT tests on non-autostarted situations [$pnosit] pdt[$sit_pdt[$i]]";
+         $advcode[$advi] = "SITAUDIT1065E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = $sit_psit[$i];
+      }
+      my $tsamp = $base_attrib_ref->{single_ct} + $base_attrib_ref->{multi_ct};
+      if (($tsamp > 0) and ($base_attrib_ref->{pure_ct} > 0)) {
+         my @itables = keys %{$base_attrib_ref->{tables}};
+         my $ptables = join(" ",@itables);
+         my $pused = join(" ",@{$base_attrib_ref->{sitused}});
+         $advi++;$advonline[$advi] = "Situation using mixed pure and sampled attribute groups [$ptables] sits[$pused] pdt[$sit_pdt[$i]]";
+         $advcode[$advi] = "SITAUDIT1066E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = $sit_psit[$i];
+      }
+      if ($base_attrib_ref->{multi_ct} > 1) {
+         my @itables = keys %{$base_attrib_ref->{tables}};
+         my $ptables = join(" ",@itables);
+         my $pused = join(" ",@{$base_attrib_ref->{sitused}});
+         $advi++;$advonline[$advi] = "Situation using more than one multi-row attribute group [$ptables] sits[$pused] pdt[$sit_pdt[$i]]";
+         $advcode[$advi] = "SITAUDIT1067E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = $sit_psit[$i];
+      }
+   }
 }
 
 for (my $i=0; $i<=$siti; $i++) {
@@ -1749,9 +1825,33 @@ for (my $i=0; $i<=$siti; $i++) {
             $advcode[$advi] = "SITAUDIT1064W";
             $advimpact[$advi] = $advcx{$advcode[$advi]};
             $advsit[$advi] = $sit_psit[$i];
+            if ($opt_purettl == 1) {
+               $sit_pdt[$i] =~ /(.*)(\*UNTIL) \(\w*(.*)\w*\)/;
+               my $ipf1 = $1;
+               my $puntil = $2;
+               my $psit_ttl = $3;
+               my $irest = "";
+               if (defined $puntil) {
+                  chop($ipf1);
+                  if ( $psit_ttl =~ /\*SIT (\S+) \*OR \*TTL (\S+) /) {   # *UNTIL ( *SIT FM_SERV_WIN_ALL_ALL_ALL_0 *OR *TTL 00:00:30:00 )
+                     $irest = "*UNTIL ( *SIT " . $1 . " )";
+
+                  } elsif ( $psit_ttl  =~ /\*TTL (\S+)/) {  # *UNTIL ( *TTL 00:00:30:00 )
+                     $irest = "";
+                  }
+                  my $rline = "editSit -s " . $sit[$i] . ' -f  -p Formula="' . $ipf1;
+                  if ($irest ne "") {
+                     $rline .= " " . $irest;
+                  }
+                  $rline .= '"';
+                  print $ttlsh  "./tacmd " . $rline . "\n";
+                  print $ttlcmd "tacmd " . $rline . "\n";
+               }
+            }
          }
       }
    }
+
    if ($sit_until_sit[$i] ne "") {
       if ($sit_atom[$i] ne "") {
          my $usit = $sit_until_sit[$i];
@@ -2254,6 +2354,7 @@ foreach $f (sort { $pdtx{$b}->{count} <=> $pdtx{$a}->{count} ||
    print OH "$oneline\n";
 }
 
+
 # when there are duplicate PDTs, if desired create .sh and .cmd files
 # to generate new MSLs and also to delete obsolete situations
 if ($pdt_total > 0) {
@@ -2349,6 +2450,11 @@ if ($pdt_total > 0) {
       close $delsh;
       close $delcmd;
    }
+}
+
+if ($opt_purettl == 1) {
+   close $ttlsh;
+   close $ttlcmd;
 }
 
 # when wanted print out the sitname, fullname and pdt
@@ -3341,68 +3447,101 @@ sub get_list {
 
 # Analyze top level situations
 
+# Before first entry, $sitcyclei was set to index of base situation.
+
 sub cycle_sit {
   my $cx = shift;
   $sittopi = $cx;
   my $vx;
+
   $sitcyclerc = 0;
   %sitcyclex = ();                     # clear out working hash
   @sitcycle = ();                      # clear out working array
   my $sitone = $sit[$cx];
-  if (!defined $sitone) {               # unknown situation is tracked elsewhere, ignore here
+  if (!defined $sitone) {
      $sitcyclerc = -1;
-  } else {
-#print "cycle_sit $cx $sitone\n";
-     push (@sitcycle,$sitone);          # At starting point, no possible conflict first in array
-     $sitcyclex{$sitone} = 1;           # and present in situation usage hash
-     foreach my $g (keys %{$sit_sits[$cx]}) {
-        $vx = $sitx{$g};
-        next if !defined $vx;              # unknown situation but will show in advisory elsewhere
-        $rc = cycle_visit_sit($vx);
-        last if $sitcyclerc != 0;
-     }
-     if ($sitcyclerc > 0) {
-          my $loopsit = join(":",@sitcycle);
-          $advi++;$advonline[$advi] = "Situation with looping *SIT evaluations [$loopsit]";
-          $advcode[$advi] = "SITAUDIT1049E";
-          $advimpact[$advi] = $advcx{$advcode[$advi]};
-          $advsit[$advi] = $sit_psit[$sittopi];
-     }
+     return;
+  }
+  my $sit_attrib_ref = $sit_attrib[$sitcyclei]{$sitone};
+  if (!defined $sit_attrib_ref) {
+     my %sit_attribref = (
+                            count => 0,
+                            tables => {},
+                            table_ct => 0,
+                            pure_ct => 0,
+                            single_ct => 0,
+                            multi_ct => 0,
+                            nosits => {},
+                            sitused => [],
+                         );
+     $sit_attrib_ref = \%sit_attribref;
+     $sit_attrib[$sitcyclei]{$sitone} = \%sit_attribref;
+  }
+  $sit_attrib_ref->{count} += 1;
+  push (@sitcycle,$sitone);          # At starting point, no possible conflict first in array
+  $sitcyclex{$sitone} = 1;           # and present in situation usage hash
+  $rc = cycle_visit_sit($cx,$sit_attrib_ref);
+#  foreach my $g (keys %{$sit_sits[$cx]}) {
+#     $vx = $sitx{$g};
+#     next if !defined $vx;              # unknown situation but will show in advisory elsewhere
+#     $rc = cycle_visit_sit($vx,$sit_attrib_ref);
+#     last if $sitcyclerc != 0;
+#  }
+  if ($sitcyclerc > 0) {
+       my $loopsit = join(":",@sitcycle);
+       $advi++;$advonline[$advi] = "Situation with looping *SIT evaluations [$loopsit]";
+       $advcode[$advi] = "SITAUDIT1049E";
+       $advimpact[$advi] = $advcx{$advcode[$advi]};
+       $advsit[$advi] = $sit_psit[$sittopi];
   }
 }
 
 # Recursive entry to *SIT analysis
 
 sub cycle_visit_sit {
-   if ( $sitcyclerc > 0) {
-      return $sitcyclerc;
-   }
-#   return $sitcyclerc if $sitcyclerc > 0;
+   return $sitcyclerc if $sitcyclerc > 0;
    $gx = shift;
+   my $base_attrib_ref = shift;
    my $sitone = $sit[$gx];
    if (defined $sitone) {
-#print "cycle_visit_sit $gx $sitone\n";
-      if (defined $sitcyclex{$sitone}) {     # if found a loop,
-        push (@sitcycle,$sitone);           # looping situation at end of usage array
-        $sitcyclerc = 1;                    #   trigger bailout with @sitcycle intact
-        return $sitcyclerc;
-      } else {
-         # for the tables in the reference situation, add to the base situation tables
-         # even if a looping failure follows, the alltables will be more correct and thus eliminate some false positives
-         foreach my $a (keys %{$sit_alltables[$gx]}) {
-            $sit_alltables[$sittopi]{$a} = 1;               # always add, if already exist things don't change
+      if ($sitcyclei != $gx) {
+         if (defined $sitcyclex{$sitone}) {     # if found a loop,
+           push (@sitcycle,$sitone);           # looping situation at end of usage array
+           $sitcyclerc = 1;                    #   trigger bailout with @sitcycle intact
+           return $sitcyclerc;
          }
-         push (@sitcycle,$sitone);          # Add new situation at end of usage array
-         $sitcyclex{$sitone} = 1;           # add to situation usage hash
-         foreach my $g (keys %{$sit_sits[$gx]}) {             # for each v adjacent to u
-            my $vx = $sitx{$g};
-            next if !defined $vx;
-            $rc = cycle_visit_sit($vx);
-            return if $sitcyclerc > 0;
-         }
-         pop (@sitcycle);                   #delete end of usage element
-         delete $sitcyclex{$sitone};        #remove hash
       }
+      # for the tables in the reference situation, add to the base situation tables
+      # even if a looping failure follows, the alltables will be more correct and thus eliminate some false positives
+      foreach my $a (keys %{$sit_alltables[$gx]}) {
+         $sit_alltables[$sittopi]{$a} = 1;               # always add, if already exist things don't change
+         my $table_ref = $base_attrib_ref->{tables}{$a};
+         if (!defined $table_ref) {
+            my %tableref = (
+                              count => 0,
+                               sits => {},
+                           );
+            my $table_ref = \%tableref;
+            $base_attrib_ref->{tables}{$a}  = \%tableref;
+         }
+         $base_attrib_ref->{tables}{$a}->{count} += 1;
+         $base_attrib_ref->{tables}{$a}->{sits}{$sitone} = 1;
+      }
+      push (@sitcycle,$sitone);          # Add new situation at end of usage array
+      $sitcyclex{$sitone} = 1;           # add to situation usage hash
+      my $sit_ct = scalar keys %{$sit_sits[$gx]};
+      foreach my $g (keys %{$sit_sits[$gx]}) {             # for each v adjacent to u
+         my $vx = $sitx{$g};
+         if (!defined $vx) {
+            $base_attrib_ref->{nosits}{$g} = 1 if defined $sitnox{$g};
+            next;
+         }
+         next if !defined $vx;
+         $rc = cycle_visit_sit($vx,$base_attrib_ref);
+         return if $sitcyclerc > 0;
+      }
+      pop (@sitcycle);                   #delete end of usage element
+      delete $sitcyclex{$sitone};        #remove hash
    }
 }
 
@@ -3420,6 +3559,7 @@ sub newsit {
       $sit_aff_agent[$siti] = substr("$iaffinities   ",0,32);
       $sit_atrlen[$siti] = 0;
       $sit_attribs[$siti] = {};
+      $sit_attrib[$siti] = {};
       $sit_domain_pass[$siti] = 0;
       $sit_correlated[$siti] = 0;
       $sit_timeneeq[$siti] = 0;
@@ -3810,6 +3950,7 @@ sub init_all {
       # also work on if -runall is specified.
       $sit_tems_alert = 1 if $isitname eq "TEMS_Alert";
       if ($iautostart eq "*NO") {
+         $sitnox{$isitname} = 1;
          if (!defined $hSP2OS{$isitname}) {
             next if $opt_runall == 0;
          }
@@ -4549,7 +4690,8 @@ sub init {
               'sitpdt' => \$opt_sitpdt,
               'noauto' => \ $opt_noauto,              # create editsit for impossible to run cases
               'nofull' => \ $opt_nofull,              # Do not display fullname
-              'all' => \ $opt_all                     # Handle autostart *NO situations
+              'all' => \ $opt_all,                    # Handle autostart *NO situations
+              'purettl' => \ $opt_purettl,            # generate purettl shell commands
              );
    # if other things found on the command line - complain and quit
    @myargs_remain_array = @$myargs_remain;
@@ -4569,6 +4711,7 @@ sub init {
    if (!defined $opt_debuglevel) {$opt_debuglevel=90;}         # debug logging level - low number means fewer messages
    if (!defined $opt_debug) {$opt_debug=0;}                    # debug - turn on rare error cases
    if (!defined $opt_nofull) {$opt_nofull=0;}                  # Display Sitname and not Fullname
+   if (!defined $opt_purettl) {$opt_purettl=0;}                # purettl shell files not needed
    if (defined $opt_txt) {
       $opt_txt_tsitdesc = "QA1CSITF.DB.TXT";
       $opt_txt_tname =    "QA1DNAME.DB.TXT";
@@ -5496,6 +5639,8 @@ $run_status++;
 # 1.44000  : anominize two example report rows
 # 1.45000  : Add advisory for pure situations with *COUNT test
 # 1.46000  : Add advisory for pure situations *TTL more than 15 minutes
+# 1.47000  : Add advisories for inconsistent attribute usage
+#          : Add -purettl to create shell files to remove *UNTIL/*TTL when more than 15 minutes
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -6679,6 +6824,47 @@ Netcool/Omnibus to handle the work and there is no reason to tie
 up hub or remote TEMS storage for too long.
 
 Recovery Plan: Change the formula to reduce *TTL time to the minimum necessary.
+----------------------------------------------------------------
+
+SITAUDIT1065E
+Text: Situation using *SIT tests on non-autostarted situations [sits] pdt[formula"
+
+Meaning: Use of *SIT tests when the target situation is not autostarted
+always means the situation will not fire as expected.
+
+Recovery Plan: Make sure the *SIT tests are for autostated situations.
+----------------------------------------------------------------
+
+SITAUDIT1066E
+Text: Situation using mixed pure and sampled attribute groups [tables] sits[sits] pdt[formula]
+
+Meaning: Situation formula should never mix pure and sampled situations.
+The result will be unexpected and certainly not what is expected,
+
+If you want to mix in a time test, compose that as a Base/Until where
+the pure formula is in the base situation and the Until has the time test.
+
+Recovery Plan: Change the formula to a base/until or chose an different solution
+----------------------------------------------------------------
+
+SITAUDIT1067E
+Text: Situation using more than one multi-row attribute group [tables] sits[sits] pdt[formula]"
+
+Meaning: ITM only works correctly with a single multi-row attribute group
+in the formula. The result is often a severe TEMS performance issue and no
+situation events otherwise expected.
+
+This can only occur when a situation formula is manually composed... not
+in the TEP Situation Editor, That editor protects you from illegal
+constructions.
+
+There are cases where a Base/Until solution can be substituted. See this
+document for an example:
+
+Sitworld: Policing the Hatfields and the McCoys
+http://itm-sitworld.blog/2016/05/02/sitworld-policing-the-hatfields-and-the-mccoys/
+
+Recovery Plan: Change the formula to use only a single multi-row attribute group.
 ----------------------------------------------------------------
 
 SITREPORT002
