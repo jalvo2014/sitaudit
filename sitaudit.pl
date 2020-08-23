@@ -39,7 +39,7 @@ use warnings;
 
 # See short history at end of module
 
-my $gVersion = "1.47000";
+my $gVersion = "1.48000";
 my $gWin = (-e "C://") ? 1 : 0;    # 1=Windows, 0=Linux/Unix
 
 # communicate without certificates
@@ -179,6 +179,7 @@ my @sit_time = ();                         # count of *TIME
 my @sit_time_same = ();                    # count of *TIME with same attribute table [bad]
 my @sit_and = ();                          # count of *ANDs
 my @sit_or = ();                           # count of *ORs
+my @sit_ne = ();                           # count of *NEs
 my @sit_noprivate = ();                    # Count of column functions not eligible for Private Situations
 my @sit_noprivate_FP4 = ();                # Count of column functions not eligible for Private Situations ITM 630 FP4
 my @sit_noprivate_V8 = ();                 # Count of column functions not eligible for Private Situations V8
@@ -1107,6 +1108,8 @@ my %advcx = (
                "SITAUDIT1065E" => "100",
                "SITAUDIT1066E" => "95",
                "SITAUDIT1067E" => "100",
+               "SITAUDIT1068W" => "65",
+               "SITAUDIT1069E" => "100",
             );
 
 
@@ -2086,6 +2089,17 @@ for (my $i=0; $i<=$siti; $i++) {
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = $sit_psit[$i];
       $impossible{$sit[$i]} = "syntax not starting with *IF";
+   }
+   if (($sit_ne[$i] > 1) and ($sit_or[$i] > 0) and ($sit_and[$i] = 0)) {
+      $advi++;$advonline[$advi] = "Situation With *VALUE *NE and *ORs and no *ANDs is usually invalid";
+      $advcode[$advi] = "SITAUDIT1069E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = $sit_psit[$i];
+   } elsif (($sit_ne[$i] > 1) and ($sit_or[$i] > 0) ) {
+      $advi++;$advonline[$advi] = "Situation With *VALUE *NE and *ORs need review, sometimes invalid";
+      $advcode[$advi] = "SITAUDIT1068W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = $sit_psit[$i];
    }
    if (($sit_and[$i] > 0) and ($sit_or[$i] > 0)) {
       push(@{$sit_noprivate[$i]},"AND+OR");
@@ -3075,6 +3089,7 @@ sub My_Actions::do_value {
     print "My_Actions::do_value: 1[$pt1] 2[$pt2] 3[$pt3] 4[$pt4]\n" if $opt_v == 1;
     my $attrgroup = $$t2[0];
     my $attr = $$t2[2];
+    $sit_ne[$curi] += 1 if $$t3[0] eq "*NE";
     if ($attrgroup eq "ManagedSystem") {
        if ($attr eq "Status") {
           if ($$t3[0] eq "*EQ"){
@@ -3639,6 +3654,7 @@ sub newsit {
       $sit_time_same[$siti] = 0;
       $sit_and[$siti] = 0;
       $sit_or[$siti] = 0;
+      $sit_ne[$siti] = 0;
       $sit_noprivate[$siti] = [];                   # array of reasons why private sits are invalid
       $sit_noprivate_FP4[$siti] = [];               # array of reasons why private sits are invalid ITM 630 FP4
       $sit_noprivate_V8[$siti] = [];                # array of reasons why private sits are invalid V8
@@ -5641,6 +5657,7 @@ $run_status++;
 # 1.46000  : Add advisory for pure situations *TTL more than 15 minutes
 # 1.47000  : Add advisories for inconsistent attribute usage
 #          : Add -purettl to create shell files to remove *UNTIL/*TTL when more than 15 minutes
+# 1.48000  : Add advisory for mixed *NEs and *ORs
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -6865,6 +6882,29 @@ Sitworld: Policing the Hatfields and the McCoys
 http://itm-sitworld.blog/2016/05/02/sitworld-policing-the-hatfields-and-the-mccoys/
 
 Recovery Plan: Change the formula to use only a single multi-row attribute group.
+----------------------------------------------------------------
+
+SITAUDIT1068W
+Text: Situation With *VALUE *NE and *ORs need review, sometimes invalid
+
+Meaning: When a Situation Formulat use *NE tests and *ORs them together
+the result is sometimes always true. That creates a TEMS performance issue
+and also does not give the events desired.
+
+Recovery Plan: Change the formula to *NE tests and *AND connectors if there
+is a logical problem like that.
+----------------------------------------------------------------
+
+SITAUDIT1069E
+Text: Situation With *VALUE *NE and *ORs and no *ANDs is usually invalid
+
+Meaning: When a Situation Formulat use *NE tests and *ORs them together
+the result is sometimes always true. That is especiall true if there are
+no *ANDs in the formula. That creates a TEMS performance issue since the
+result can be always true... and also does not give the events desired.
+
+Recovery Plan: Change the formula to *NE tests and *AND connectors if there
+is a logical problem like that.
 ----------------------------------------------------------------
 
 SITREPORT002
